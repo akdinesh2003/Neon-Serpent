@@ -39,7 +39,6 @@ export function NeonSerpentGame() {
   const [score, setScore] = useState(0);
   const [isAiThinking, setIsAiThinking] = useState(false);
   const { toast } = useToast();
-  const [eatenFood, setEatenFood] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(themes[0]);
 
@@ -142,14 +141,15 @@ export function NeonSerpentGame() {
     }
   };
 
-  const placeNewFood = useCallback(async (currentSnake: Position[]) => {
+  const placeNewFood = useCallback(async (currentSnake: Position[], currentFood: Position) => {
     setIsAiThinking(true);
+    let newFoodPosition: Position;
     try {
         const response = await getFoodPlacement({
             boardWidth: BOARD_SIZE,
             boardHeight: BOARD_SIZE,
             snakeBody: currentSnake,
-            currentFood: food,
+            currentFood: currentFood,
         });
 
         if (response.success && response.data) {
@@ -157,21 +157,22 @@ export function NeonSerpentGame() {
             const isInvalid = currentSnake.some(seg => seg.x === newFood.x && seg.y === newFood.y) || newFood.x < 0 || newFood.x >= BOARD_SIZE || newFood.y < 0 || newFood.y >= BOARD_SIZE;
             if(isInvalid) {
                  toast({ title: 'AI Placement Invalid', description: 'AI suggested an invalid spot. Placing randomly.' });
-                 setFood(generateRandomFood(currentSnake));
+                 newFoodPosition = generateRandomFood(currentSnake);
             } else {
-                setFood({ x: newFood.x, y: newFood.y });
+                newFoodPosition = { x: newFood.x, y: newFood.y };
             }
         } else {
             toast({ title: 'AI Food Placement Failed', description: response.error, variant: 'destructive' });
-            setFood(generateRandomFood(currentSnake));
+            newFoodPosition = generateRandomFood(currentSnake);
         }
     } catch (error) {
         toast({ title: 'AI Request Error', description: 'Could not fetch AI placement.', variant: 'destructive' });
-        setFood(generateRandomFood(currentSnake));
+        newFoodPosition = generateRandomFood(currentSnake);
     } finally {
+        setFood(newFoodPosition);
         setIsAiThinking(false);
     }
-  }, [food, toast]);
+  }, [toast]);
 
   const runGame = useCallback(() => {
     if (gameState !== 'PLAYING') return;
@@ -203,21 +204,13 @@ export function NeonSerpentGame() {
     // Food collision
     if (head.x === food.x && head.y === food.y) {
         setScore(prev => prev + 10);
-        setEatenFood(true);
+        placeNewFood(newSnake, food);
     } else {
         newSnake.pop();
     }
     
     setSnake(newSnake);
-  }, [snake, direction, food, gameState]);
-
-
-  useEffect(() => {
-    if (eatenFood && gameState === 'PLAYING') {
-      placeNewFood(snake);
-      setEatenFood(false);
-    }
-  }, [eatenFood, gameState, snake, placeNewFood]);
+  }, [snake, direction, food, gameState, placeNewFood]);
 
   useEffect(() => {
     if (gameState === 'PLAYING') {
