@@ -38,6 +38,7 @@ export function NeonSerpentGame() {
   const [score, setScore] = useState(0);
   const [isAiThinking, setIsAiThinking] = useState(false);
   const { toast } = useToast();
+  const [eatenFood, setEatenFood] = useState(false);
 
   const handleResize = () => {
     const minDim = Math.min(window.innerWidth * 0.9, window.innerHeight * 0.6);
@@ -123,7 +124,7 @@ export function NeonSerpentGame() {
     }
   };
 
-  const placeNewFood = async (currentSnake: Position[]) => {
+  const placeNewFood = useCallback(async (currentSnake: Position[]) => {
     setIsAiThinking(true);
     const response = await getFoodPlacement({
         boardWidth: BOARD_SIZE,
@@ -146,7 +147,14 @@ export function NeonSerpentGame() {
         toast({ title: 'AI Food Placement Failed', description: response.error, variant: 'destructive' });
         setFood(generateRandomFood(currentSnake));
     }
-  };
+  }, [food, toast]);
+
+  useEffect(() => {
+    if (eatenFood) {
+      placeNewFood(snake);
+      setEatenFood(false);
+    }
+  }, [eatenFood, snake, placeNewFood]);
 
   const runGame = () => {
     if (gameState !== 'PLAYING') return;
@@ -179,7 +187,7 @@ export function NeonSerpentGame() {
         // Food collision
         if (head.x === food.x && head.y === food.y) {
             setScore(prev => prev + 10);
-            placeNewFood(newSnake);
+            setEatenFood(true);
         } else {
             newSnake.pop();
         }
