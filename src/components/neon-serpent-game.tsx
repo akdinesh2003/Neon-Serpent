@@ -1,16 +1,16 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { useInterval } from '@/hooks/use-interval';
 import { getFoodPlacement } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Loader2, Pause, Play, RotateCw } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Loader2, Pause, Play, RotateCw, SettingsIcon } from 'lucide-react';
+import { GameSettings, type Theme, themes, type Speed, speeds } from '@/components/game-settings';
 
 const BOARD_SIZE = 20;
 const SCALE_BASE = 25;
-const INITIAL_SPEED_MS = 150;
 
 const DIRECTIONS = {
   ArrowUp: { x: 0, y: -1 },
@@ -34,11 +34,24 @@ export function NeonSerpentGame() {
   const [snake, setSnake] = useState<Position[]>(createInitialSnake());
   const [food, setFood] = useState<Position>({ x: 15, y: 15 });
   const [direction, setDirection] = useState<DirectionKey>('ArrowUp');
-  const [speed, setSpeed] = useState<number | null>(null);
+  const [speed, setSpeed] = useState<Speed>('normal');
+  const [gameSpeed, setGameSpeed] = useState<number | null>(null);
   const [score, setScore] = useState(0);
   const [isAiThinking, setIsAiThinking] = useState(false);
   const { toast } = useToast();
   const [eatenFood, setEatenFood] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [theme, setTheme] = useState<Theme>(themes[0]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty('--background', theme.colors.background);
+    root.style.setProperty('--foreground', theme.colors.foreground);
+    root.style.setProperty('--primary', theme.colors.primary);
+    root.style.setProperty('--accent', theme.colors.accent);
+    root.style.setProperty('--border', theme.colors.border);
+    root.style.setProperty('--ring', theme.colors.ring);
+  }, [theme]);
 
   const handleResize = useCallback(() => {
     const isMobile = window.innerWidth < 768;
@@ -58,21 +71,24 @@ export function NeonSerpentGame() {
     setFood({ x: 15, y: 15 });
     setDirection('ArrowUp');
     setScore(0);
-    setSpeed(INITIAL_SPEED_MS);
+    const newSpeed = speeds[speed];
+    setGameSpeed(newSpeed);
     setGameState('PLAYING');
-  }, []);
+  }, [speed]);
 
   const pauseGame = () => {
     if (gameState === 'PLAYING') {
-      setSpeed(null);
+      setGameSpeed(null);
       setGameState('PAUSED');
     } else if (gameState === 'PAUSED') {
-      setSpeed(INITIAL_SPEED_MS);
+      const newSpeed = speeds[speed];
+      setGameSpeed(newSpeed);
       setGameState('PLAYING');
     }
   };
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (isSettingsOpen) return;
     const key = e.key as DirectionKey;
     if (key in DIRECTIONS) {
       e.preventDefault();
@@ -93,7 +109,7 @@ export function NeonSerpentGame() {
         e.preventDefault();
         pauseGame();
     }
-  }, [direction, gameState, resetGame]);
+  }, [direction, gameState, resetGame, isSettingsOpen]);
 
   const handleDirectionChange = (newDirection: DirectionKey) => {
      if (
@@ -157,45 +173,44 @@ export function NeonSerpentGame() {
     }
   }, [food, toast]);
 
-  const runGame = () => {
+  const runGame = useCallback(() => {
     if (gameState !== 'PLAYING') return;
 
-    setSnake(prevSnake => {
-        const newSnake = [...prevSnake];
-        const head = { ...newSnake[0] };
-        const move = DIRECTIONS[direction];
-        head.x += move.x;
-        head.y += move.y;
+    const newSnake = [...snake];
+    const head = { ...newSnake[0] };
+    const move = DIRECTIONS[direction];
+    head.x += move.x;
+    head.y += move.y;
 
-        // Wall collision
-        if (head.x < 0 || head.x >= BOARD_SIZE || head.y < 0 || head.y >= BOARD_SIZE) {
+    // Wall collision
+    if (head.x < 0 || head.x >= BOARD_SIZE || head.y < 0 || head.y >= BOARD_SIZE) {
+        setGameState('GAME_OVER');
+        setGameSpeed(null);
+        return;
+    }
+
+    // Self collision
+    for (let i = 1; i < newSnake.length; i++) {
+        if (head.x === newSnake[i].x && head.y === newSnake[i].y) {
             setGameState('GAME_OVER');
-            setSpeed(null);
-            return prevSnake;
+            setGameSpeed(null);
+            return;
         }
+    }
 
-        // Self collision
-        for (let i = 1; i < newSnake.length; i++) {
-            if (head.x === newSnake[i].x && head.y === newSnake[i].y) {
-                setGameState('GAME_OVER');
-                setSpeed(null);
-                return prevSnake;
-            }
-        }
+    newSnake.unshift(head);
 
-        newSnake.unshift(head);
+    // Food collision
+    if (head.x === food.x && head.y === food.y) {
+        setScore(prev => prev + 10);
+        setEatenFood(true);
+    } else {
+        newSnake.pop();
+    }
+    
+    setSnake(newSnake);
+  }, [snake, direction, food, gameState]);
 
-        // Food collision
-        if (head.x === food.x && head.y === food.y) {
-            setScore(prev => prev + 10);
-            setEatenFood(true); // Signal to place new food
-        } else {
-            newSnake.pop();
-        }
-        
-        return newSnake;
-    });
-  };
 
   useEffect(() => {
     if (eatenFood && gameState === 'PLAYING') {
@@ -204,7 +219,16 @@ export function NeonSerpentGame() {
     }
   }, [eatenFood, gameState, snake, placeNewFood]);
 
-  useInterval(runGame, speed);
+  useEffect(() => {
+    if (gameState === 'PLAYING') {
+      const newSpeed = speeds[speed];
+      setGameSpeed(newSpeed);
+    } else {
+      setGameSpeed(null);
+    }
+  }, [speed, gameState]);
+
+  useInterval(runGame, gameSpeed);
   
   const boardDimensions = {
       width: BOARD_SIZE * scale,
@@ -231,9 +255,21 @@ export function NeonSerpentGame() {
             <Button variant="ghost" size="icon" onClick={pauseGame} disabled={gameState !== 'PLAYING' && gameState !== 'PAUSED'} className="text-primary hover:text-primary hover:bg-primary/10">
               {gameState === 'PLAYING' ? <Pause/> : <Play/>}
             </Button>
+            <GameSettings 
+              open={isSettingsOpen}
+              onOpenChange={setIsSettingsOpen}
+              speed={speed}
+              onSpeedChange={setSpeed}
+              theme={theme}
+              onThemeChange={setTheme}
+            >
+              <Button variant="ghost" size="icon" className="text-primary hover:text-primary hover:bg-primary/10">
+                <SettingsIcon />
+              </Button>
+            </GameSettings>
           </div>
       </div>
-      <div className="relative rounded-md overflow-hidden border border-primary/20" style={boardDimensions}>
+      <div className="relative rounded-lg overflow-hidden border-2 border-primary/20 bg-primary/5 shadow-[0_0_40px_-10px_hsl(var(--primary))]" style={boardDimensions}>
         {gameState === 'START' && renderOverlay('Neon Serpent', 'Start Game', resetGame)}
         {gameState === 'PAUSED' && renderOverlay('Paused', 'Resume', pauseGame, <Play className="mr-2"/>)}
         {gameState === 'GAME_OVER' && renderOverlay('Game Over', 'Restart', resetGame, <RotateCw className="mr-2"/>)}
